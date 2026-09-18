@@ -1,0 +1,20 @@
+[Unit]
+Description=Multi-Agent Research System (FastAPI on EC2)
+After=docker.service
+Requires=docker.service
+
+[Service]
+Restart=always
+RestartSec=10
+TimeoutStartSec=0
+ExecStartPre=-/usr/bin/docker stop multi-agent-research
+ExecStartPre=-/usr/bin/docker rm multi-agent-research
+ExecStartPre=/usr/bin/docker pull ACCOUNT_ID.dkr.ecr.us-east-1.amazonaws.com/multi-agent-research:latest
+ExecStart=/usr/bin/docker run --rm --name multi-agent-research \
+  --env-file /etc/multi-agent/.env \
+  -p 8000:8000 \
+  ACCOUNT_ID.dkr.ecr.us-east-1.amazonaws.com/multi-agent-research:latest
+ExecStop=/usr/bin/docker stop multi-agent-research
+
+[Install]
+WantedBy=multi-user.target

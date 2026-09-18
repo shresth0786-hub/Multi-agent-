@@ -1,0 +1,34 @@
+{
+  "family": "multi-agent-research",
+  "networkMode": "awsvpc",
+  "requiresCompatibilities": ["FARGATE"],
+  "cpu": "1024",
+  "memory": "2048",
+  "executionRoleArn": "arn:aws:iam::ACCOUNT_ID:role/ecsTaskExecutionRole",
+  "taskRoleArn": "arn:aws:iam::ACCOUNT_ID:role/multi-agent-task-role",
+  "containerDefinitions": [
+    {
+      "name": "multi-agent-research",
+      "image": "ACCOUNT_ID.dkr.ecr.us-east-1.amazonaws.com/multi-agent-research:latest",
+      "essential": true,
+      "portMappings": [{ "containerPort": 8000, "protocol": "tcp" }],
+      "logConfiguration": {
+        "logDriver": "awslogs",
+        "options": {
+          "awslogs-group": "/ecs/multi-agent-research",
+          "awslogs-region": "us-east-1",
+          "awslogs-stream-prefix": "agent"
+        }
+      },
+      "secrets": [
+        { "name": "OPENAI_API_KEY", "valueFrom": "arn:aws:secretsmanager:us-east-1:ACCOUNT_ID:secret:multi-agent/OPENAI_API_KEY" },
+        { "name": "TAVILY_API_KEY", "valueFrom": "arn:aws:secretsmanager:us-east-1:ACCOUNT_ID:secret:multi-agent/TAVILY_API_KEY" }
+      ],
+      "environment": [
+        { "name": "OPENAI_MODEL", "value": "gpt-4o-mini" },
+        { "name": "MAX_CRITIQUE_ITERATIONS", "value": "3" },
+        { "name": "CRITIQUE_THRESHOLD", "value": "0.85" }
+      ]
+    }
+  ]
+}
