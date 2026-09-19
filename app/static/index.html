@@ -1,0 +1,91 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<title>Multi-Agent Research Console</title>
+<link rel="stylesheet" href="/static/style.css" />
+<script defer src="https://cdn.jsdelivr.net/npm/marked@12.0.2/marked.min.js"></script>
+<script defer src="https://cdn.jsdelivr.net/npm/chart.js@4.4.3/dist/chart.umd.min.js"></script>
+<script defer src="/static/app.js"></script>
+</head>
+<body>
+<header class="topbar">
+  <div class="topbar-left">
+    <span class="logo">&#9670;</span>
+    <h1>Multi-Agent Research Console</h1>
+  </div>
+  <div class="topbar-right">
+    <span id="healthBadge" class="badge badge--neutral">checking…</span>
+    <span id="modeBadge" class="badge badge--amber" title="Without OPENAI_API_KEY / TAVILY_API_KEY agents run on fallbacks">FALLBACK MODE</span>
+  </div>
+</header>
+
+<main class="layout">
+  <nav class="tabs" role="tablist">
+    <button class="tab tab--active" data-tab="chat" role="tab">Chat</button>
+    <button class="tab" data-tab="history" role="tab">Task History</button>
+    <button class="tab" data-tab="sandbox" role="tab">Sandbox</button>
+  </nav>
+
+  <!-- CHAT TAB -->
+  <section id="panel-chat" class="panel panel--active">
+    <div class="chat-toolbar">
+      <label class="switch" title="Show answers as visual charts instead of text">
+        <input type="checkbox" id="visualToggle" />
+        <span class="switch-track"><span class="switch-thumb"></span></span>
+        <span>Visual answers</span>
+      </label>
+    </div>
+
+    <div id="chatMessages" class="chat-messages"></div>
+
+    <form id="chatForm" class="chat-form" autocomplete="off">
+      <textarea id="chatInput" rows="2" spellcheck="false"
+        placeholder="Type your request, then press Enter. Shift+Enter for a new line."></textarea>
+      <button id="sendBtn" class="btn btn--primary" type="submit">Send</button>
+    </form>
+    <div id="chatHint" class="hint">Press <b>Enter</b> to run the pipeline.</div>
+  </section>
+
+  <!-- HISTORY TAB -->
+  <section id="panel-history" class="panel">
+    <div class="card">
+      <div class="row row--controls">
+        <h3 style="margin:0">Recent tasks</h3>
+        <button id="refreshHistoryBtn" class="btn">Refresh</button>
+      </div>
+      <table class="table">
+        <thead>
+          <tr><th>Status</th><th>Task ID</th><th>Request</th><th>Created</th></tr>
+        </thead>
+        <tbody id="historyBody"></tbody>
+      </table>
+    </div>
+  </section>
+
+  <!-- SANDBOX TAB -->
+  <section id="panel-sandbox" class="panel">
+    <div class="card">
+      <label class="field-label" for="code">Python to run in the isolated sandbox (<code>python -I</code>)</label>
+      <textarea id="code" rows="10" spellcheck="false">data = list(range(1, 11))
+avg = sum(data) / len(data)
+print("mean:", avg)
+with open("analysis_result.json", "w") as fh:
+    fh.write('{"mean": ' + str(avg) + '}')
+</textarea>
+      <div class="row row--controls">
+        <button id="analyzeBtn" class="btn btn--primary">Run in sandbox</button>
+        <span id="analyzeStatus" class="muted"></span>
+      </div>
+      <pre id="analyzeOut" class="code-block"></pre>
+      <div id="analyzeCharts" class="charts"></div>
+    </div>
+  </section>
+</main>
+
+<footer class="footer">
+  LangGraph orchestrator &middot; plan &rarr; research &rarr; coverage &rarr; analyze &rarr; report &harr; critique &rarr; finalize
+</footer>
+</body>
+</html>

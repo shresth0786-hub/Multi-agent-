@@ -19,10 +19,17 @@ data/faiss_index/*
 !data/faiss_index/.gitkeep
 data/raw_docs/*
 !data/raw_docs/.gitkeep
+!data/raw_docs/q3_metrics.md
+!data/raw_docs/retention_analysis.md
+!data/raw_docs/experiments_backlog.md
+!data/raw_docs/product_notes.md
 data/generated/
 data/*.sqlite
 data/*.sqlite-*
 data/checkpoints/
+
+# Logs
+server*.log
 
 # OS / editor
 .DS_Store

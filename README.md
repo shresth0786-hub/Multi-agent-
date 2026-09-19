@@ -83,6 +83,24 @@ Durability: task results + statuses live in `data/tasks.sqlite` and graph
 checkpoints in `data/checkpoints/` (both volume-mounted in Docker). A
 background worker pool (`WORKER_COUNT`) drains queued tasks.
 
+## Training the agents (RAG knowledge base)
+
+The agents get "smarter" by retrieving from a knowledge base you control. No
+model fine-tuning needed — they search your documents (FAISS) plus the live web
+(Tavily) during research, and the Coverage Scout refuses to hand over thin,
+source-less answers.
+
+```bash
+python -m scripts.seed_docs   # drop extra .md/.txt/.csv/.json files into data/raw_docs/
+python -m scripts.train       # checks your keys, indexes into FAISS, runs a proof query
+```
+
+`python -m scripts.train` prints your capability status, rebuilds the index, then
+runs a probe question through the **full pipeline** and shows the coverage score +
+evidence + report. Add your own files to `data/raw_docs/` and re-run to train it
+on *your* domain. The web UI toggle "Visual answers" renders the same evidence
+as charts.
+
 ## n8n
 
 Import `n8n/workflow-email-to-agent.json`. It reads an email (IMAP), posts the
