@@ -5,13 +5,17 @@ to solve multi-step problems — beyond single-prompt chatbot interactions.
 
 ```
 n8n (email/webhook trigger)
-   │  POST /api/v1/webhook/agent
+   │  POST /api/v1/webhook/agent  (async, 202 + poll)
    ▼
 FastAPI bridge ──► LangGraph Orchestrator (supervisor)
                         │  plan │  (decomposes request into sub-tasks)
                         ▼
                   Researcher Agent
                         │  tools: Tavily web search + FAISS local docs
+                        ▼
+                  Coverage Scout (adaptive depth)
+                        │  measures per-sub-task evidence; re-runs research
+                        │  ("GO DEEPER") until findings are quantified + sourced
                         ▼
                  Data Analyst Agent
                         │  sandboxed Python REPL (subprocess / python -I)
@@ -25,8 +29,9 @@ FastAPI bridge ──► LangGraph Orchestrator (supervisor)
 
 | Component | Location | Responsibility |
 | --- | --- | --- |
-| **Orchestrator** | `app/orchestrator/` | LangGraph state graph: `plan → research → analyze → report ↔ critique → finalize`. Manages shared state with reducers (drafts, feedback, sources accumulate across loop iterations). |
+| **Orchestrator** | `app/orchestrator/` | LangGraph state graph: `plan → research → coverage → analyze → report ↔ critique → finalize`. Two adaptive loops: **Coverage Scout** deepens thin research, **Critiquer** forces report revisions. |
 | **Researcher** | `app/agents/researcher.py` | Agent with tool-calling (`create_react_agent`): web search via **Tavily**, local semantic search via **FAISS** vectorstore. Falls back to local-only retrieval without keys. |
+| **Coverage Scout** | `app/orchestrator/nodes.py` | Unique self-tuning loop: scores each sub-task for quantified/sourced evidence and re-queries weak areas until `RESEARCH_COVERAGE_THRESHOLD` or `MAX_RESEARCH_DEPTH`. Emits per-sub-task `evidence` + `coverage_score` on every task. |
 | **Data Analyst** | `app/agents/analyst.py` | Writes Python to analyze the dataset, executes it in a sandboxed REPL (`app/services/sandbox.py`), returns statistics + base64 charts. The sandbox runs `python -I` subprocesses with wall-clock timeout and output caps. |
 | **Writer & Critiquer** | `app/agents/writer.py`, `app/agents/critiquer.py` | Writer drafts; Critiquer scores against quality guidelines (structure, completeness, evidence, length). Drafts that fail route back to the Writer with feedback, up to `MAX_CRITIQUE_ITERATIONS`. |
 | **Bridge** | `app/api/` | FastAPI backend: n8n webhook, task lookup, sandbox playground, index rebuild, health. |
@@ -106,13 +111,16 @@ EC2 + systemd paths (Docker image pushed to ECR, secrets from Secrets Manager).
 ## Graph schema
 
 ```text
-START ─► plan ─► research ─► analyze ─► report ─► critique ─► finalize ─► END
-                                                    ▲            │ fail (≤ MAX iterations)
-                                                    └────────────┘
+START ─► plan ─► research ─► coverage ─► analyze ─► report ─► critique ─► finalize ─► END
+                      ▲          │ thin                     ▲            │ fail (≤ MAX iterations)
+                      └──── GO DEEPER ──┘                   └──── revision loop ──┘
 ```
 
-Conditional edge after `critique` routes back to `report` (with accumulated
-`critique_feedback`) until `approved` or the iteration cap is hit.
+Two conditional edges:
+- after `coverage`: route back to `research` while evidence is unsourced/not
+  quantified (adaptive depth), capped at `MAX_RESEARCH_DEPTH`;
+- after `critique`: route back to `report` (with accumulated
+  `critique_feedback`) until `approved` or the iteration cap is hit.
 
 ## Project layout
 

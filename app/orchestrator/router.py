@@ -10,3 +10,11 @@ def route_after_critique(state: dict) -> str:
     if state.get("approved") and state.get("report"):
         return "finalize"
     return "report"
+
+
+def route_after_coverage(state: dict) -> str:
+    """Adaptive research depth: another research round (with refined focus)
+    while evidence is thin, otherwise move on to the analyst."""
+    if state.get("status") == "needs_research" and state.get("research_focus"):
+        return "research"
+    return "analyze"

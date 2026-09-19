@@ -33,9 +33,15 @@ def main() -> int:
     print(f"Status:    {response.status}")
     print(f"Iters:     {response.iterations}  |  Approved: {response.approved}")
     print(f"Sub-tasks: {len(response.subtasks)}")
+    print(f"Research depth: {response.research_depth}  |  Coverage: {response.coverage_score:.2f}")
     print(f"Research sources: {len(response.research_sources)}")
     for sub in response.subtasks:
         print(f"  - {sub.get('title', sub)}")
+
+    print("\nEvidence & coverage (per sub-task):")
+    for e in response.evidence:
+        flag = "OK" if e.get("sufficient") else "THIN"
+        print(f"  [{flag}] {e.get('subtask')} score={e.get('score')} sources={e.get('sources')}")
 
     print("\nCritique feedback:")
     for fb in response.critique_feedback:

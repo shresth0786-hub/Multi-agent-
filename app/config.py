@@ -25,6 +25,8 @@ class Settings(BaseSettings):
     tavily_api_key: str = ""
     enable_web_search: bool = True
     web_search_max_results: int = 5
+    research_coverage_threshold: float = 0.6
+    max_research_depth: int = 2
 
     # Vectorstore (FAISS)
     data_dir: Path = PROJECT_ROOT / "data" / "raw_docs"

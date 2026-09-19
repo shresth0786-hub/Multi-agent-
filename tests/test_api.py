@@ -70,6 +70,9 @@ def test_webhook_is_async_and_task_is_durable(client):
     assert final["approved"] is True
     assert final["report"]
     assert final["iterations"] >= 1
+    assert 0.0 <= final["coverage_score"] <= 1.0
+    assert isinstance(final["evidence"], list)
+    assert final["research_depth"] >= 1
 
 
 def test_sync_run_returns_full_result(client):

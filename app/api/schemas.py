@@ -32,6 +32,9 @@ class AgentRunResponse(BaseModel):
     approved: bool = False
     iterations: int = 0
     subtasks: list[dict] = Field(default_factory=list)
+    research_depth: int = 0
+    coverage_score: float = 0.0
+    evidence: list[dict] = Field(default_factory=list)
     research_sources: list[str] = Field(default_factory=list)
     analysis_code: str = ""
     analysis_output: str = ""

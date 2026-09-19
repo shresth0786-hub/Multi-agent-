@@ -79,15 +79,38 @@ def run_research(subtask: dict, user_request: str) -> dict:
 
 
 def run_all_research(subtasks: list[dict], user_request: str) -> dict:
-    """Run research across every planned sub-task, accumulating results."""
+    """Run research across the given sub-tasks, accumulating results.
+
+    Returns findings (joined markdown), sources, and ``per_subtask`` evidence
+    (title, findings, sources) used by the Coverage Scout node.
+    """
     if not subtasks:
         generic = {"title": "General research", "description": user_request}
-        return run_research(generic, user_request)
+        output = run_research(generic, user_request)
+        return {
+            "findings": output["findings"],
+            "sources": output["sources"],
+            "per_subtask": [
+                {
+                    "title": generic["title"],
+                    "findings": output["findings"],
+                    "sources": output["sources"],
+                }
+            ],
+        }
 
     findings: list[str] = []
     sources: list[str] = []
+    per_subtask: list[dict] = []
     for subtask in subtasks:
         output = run_research(subtask, user_request)
         findings.append(f"### {subtask.get('title', 'research')}\n" + output["findings"])
         sources.extend(output["sources"])
-    return {"findings": "\n\n".join(findings), "sources": sources}
+        per_subtask.append(
+            {
+                "title": subtask.get("title", "research"),
+                "findings": output["findings"],
+                "sources": output["sources"],
+            }
+        )
+    return {"findings": "\n\n".join(findings), "sources": sources, "per_subtask": per_subtask}

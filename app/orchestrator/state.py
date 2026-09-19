@@ -24,8 +24,13 @@ class ResearchState(TypedDict):
     user_request: str
     subtask_index: int
     subtasks: List[dict]
+    research_depth: int
+    research_focus: List[dict]
     research_results: Annotated[List[str], operator.add]
     research_sources: Annotated[List[str], operator.add]
+    round_evidence: NotRequired[List[dict]]
+    evidence: Annotated[List[dict], operator.add]
+    coverage_score: float
     raw_data: str
     analysis_code: str
     analysis_output: str
@@ -48,8 +53,12 @@ def initial_state(user_request: str, task_id: str | None = None) -> dict:
         "user_request": user_request,
         "subtask_index": 0,
         "subtasks": [],
+        "research_depth": 0,
+        "research_focus": [],
         "research_results": [],
         "research_sources": [],
+        "evidence": [],
+        "coverage_score": 0.0,
         "raw_data": "",
         "analysis_code": "",
         "analysis_output": "",

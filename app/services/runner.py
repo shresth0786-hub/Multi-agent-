@@ -21,6 +21,9 @@ def state_to_response(state: dict) -> AgentRunResponse:
         approved=bool(state.get("approved")),
         iterations=state.get("iterations", 0),
         subtasks=state.get("subtasks", []),
+        research_depth=state.get("research_depth", 0),
+        coverage_score=state.get("coverage_score", 0.0),
+        evidence=state.get("evidence", []),
         research_sources=state.get("research_sources", []),
         analysis_code=state.get("analysis_code", ""),
         analysis_output=state.get("analysis_output", ""),
@@ -43,7 +46,9 @@ def run_task(
             initial_state(user_request, task_id),
             config={
                 "configurable": {"thread_id": task_id, "metadata": metadata or {}},
-                "recursive_limit": 1 + 2 * (settings.max_critique_iterations + 6),
+                "recursive_limit": 1
+                + 2 * (settings.max_critique_iterations + 6)
+                + 3 * (settings.max_research_depth + 2),
             },
         )
     return state_to_response(final)

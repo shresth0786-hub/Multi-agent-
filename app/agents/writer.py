@@ -48,9 +48,24 @@ def _fallback_report(payload: dict) -> str:
     lines.extend(["", "## Conclusions"])
     lines.append(
         "The request was processed by the full multi-agent pipeline "
-        "(plan -> research -> analysis -> writer/critique). Re-run with "
-        "OPENAI_API_KEY and TAVILY_API_KEY configured for LLM-generated reports."
+        "(plan -> research -> coverage -> analysis -> writer/critique). "
+        "Re-run with OPENAI_API_KEY and TAVILY_API_KEY configured for "
+        "LLM-generated reports."
     )
+    lines.extend(["", "## Evidence & Coverage"])
+    evidence = payload.get("evidence") or []
+    if evidence:
+        lines.append(f"Coverage score: {float(payload.get('coverage_score', 0.0)):.2f}")
+        lines.append("")
+        lines.append("| Sub-task | Score | Sufficient | Sources |")
+        lines.append("|---|---|---|---|")
+        for e in evidence[:20]:
+            lines.append(
+                f"| {e.get('subtask', '?')} | {float(e.get('score', 0)):.2f} "
+                f"| {'yes' if e.get('sufficient') else 'no'} | {e.get('sources', 0)} |"
+            )
+    else:
+        lines.append("No per-sub-task evidence was recorded for this run.")
     lines.extend(["", "## References"])
     if sources:
         for src in sources[:25]:
@@ -82,6 +97,8 @@ def write_report(payload: dict) -> str:
         "analysis_output": payload.get("analysis_output") or "",
         "analysis_result": payload.get("analysis_result"),
         "charts_count": len(payload.get("charts") or []),
+        "evidence": payload.get("evidence") or [],
+        "coverage_score": payload.get("coverage_score", 0.0),
     }
     if model is not None:
         try:
@@ -98,6 +115,8 @@ def write_report(payload: dict) -> str:
                             + str(context["analysis_output"])
                             + "\n\nSources:\n"
                             + "\n".join(f"- {s}" for s in context["research_sources"])
+                            + "\n\nEvidence coverage:\n"
+                            + str(context["evidence"])
                         )
                     ),
                 ]
