@@ -27,6 +27,10 @@ data/generated/
 data/*.sqlite
 data/*.sqlite-*
 data/checkpoints/
+data/examples/*
+!data/examples/.gitkeep
+!data/examples/style_examples.jsonl
+data/finetune/
 
 # Logs
 server*.log

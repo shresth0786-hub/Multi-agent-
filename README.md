@@ -101,6 +101,25 @@ evidence + report. Add your own files to `data/raw_docs/` and re-run to train it
 on *your* domain. The web UI toggle "Visual answers" renders the same evidence
 as charts.
 
+### Style training (few-shot → fine-tuning)
+
+To make the writer **mimic a specific output format/style**, drop your
+`question -> ideal answer` pairs into `data/examples/style_examples.jsonl`:
+
+```json
+{"question": "Analyze our retention...", "answer": "## Bottom line\n..."}
+```
+
+- Few-shot (free, instant): the writer's prompt automatically includes up to 5
+  examples and imitates them on every live run. Works with just 2-3 pairs.
+- Fine-tuning (scale): with 20-50+ pairs you can bake the style into a custom
+  model:
+
+```bash
+python -m scripts.finetune          # prepare + launch OpenAI fine-tune
+python -m scripts.finetune --publish # write the model id into .env (OPENAI_MODEL)
+```
+
 ## n8n
 
 Import `n8n/workflow-email-to-agent.json`. It reads an email (IMAP), posts the

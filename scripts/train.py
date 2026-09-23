@@ -11,7 +11,7 @@ enables live web research on top of local knowledge.
 Run:  python -m scripts.train
 """
 
-from app.config import get_settings
+from app.config import get_settings, usable_key
 from app.services.runner import run_task
 from app.services.vectorstore import build_index, load_documents, reset_index_cache
 
@@ -20,17 +20,11 @@ PROBE_REQUEST = (
     "evidence-backed improvements, citing the supporting numbers."
 )
 
-_PLACEHOLDERS = {"sk-...", "tvly-...", "", "sk-", "tvly-"}
-
-
-def _key_usable(key: str) -> bool:
-    return bool(key) and key.strip() not in _PLACEHOLDERS and not key.strip().endswith("...")
-
 
 def main() -> int:
     settings = get_settings()
-    llm_ok = _key_usable(settings.openai_api_key)
-    web_ok = _key_usable(settings.tavily_api_key) and settings.enable_web_search
+    llm_ok = usable_key(settings.openai_api_key)
+    web_ok = usable_key(settings.tavily_api_key) and settings.enable_web_search
 
     print("=" * 64)
     print("Agent training harness  (RAG knowledge base)")

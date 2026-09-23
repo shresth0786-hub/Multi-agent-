@@ -5,6 +5,7 @@ from langchain_core.messages import HumanMessage, SystemMessage
 from app.config import get_settings
 from app.prompts.writer import WRITER_SYSTEM
 from app.services.llm import get_chat_model
+from app.services.style_examples import style_prompt_section
 
 
 def _fallback_report(payload: dict) -> str:
@@ -117,6 +118,7 @@ def write_report(payload: dict) -> str:
                             + "\n".join(f"- {s}" for s in context["research_sources"])
                             + "\n\nEvidence coverage:\n"
                             + str(context["evidence"])
+                            + style_prompt_section()
                         )
                     ),
                 ]

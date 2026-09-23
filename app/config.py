@@ -51,17 +51,33 @@ class Settings(BaseSettings):
     critique_threshold: float = 0.85
     report_max_words: int = 2500
 
+    # Style training (few-shot examples + fine-tuning source data)
+    style_examples_file: Path = (
+        PROJECT_ROOT / "data" / "examples" / "style_examples.jsonl"
+    )
+
     # App
     app_name: str = "multi-agent-research"
     api_prefix: str = "/api/v1"
 
     @property
     def has_llm(self) -> bool:
-        return bool(self.openai_api_key)
+        return usable_key(self.openai_api_key)
 
     @property
     def has_web_search(self) -> bool:
-        return self.enable_web_search and bool(self.tavily_api_key)
+        return self.enable_web_search and usable_key(self.tavily_api_key)
+
+
+_PLACEHOLDER_KEYS = {"", "sk-", "tvly-", "sk-...", "tvly-..."}
+
+
+def usable_key(key: str) -> bool:
+    """True only for a real-looking secret, never for .env placeholders."""
+    stripped = key.strip()
+    if stripped in _PLACEHOLDER_KEYS or stripped.endswith("..."):
+        return False
+    return bool(stripped)
 
 
 @lru_cache
