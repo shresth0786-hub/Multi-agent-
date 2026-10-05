@@ -31,6 +31,7 @@ data/examples/*
 !data/examples/.gitkeep
 !data/examples/style_examples.jsonl
 data/finetune/
+data/settings_overrides.json
 
 # Logs
 server*.log

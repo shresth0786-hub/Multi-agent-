@@ -8,18 +8,24 @@ from app.agents.researcher import run_all_research
 from app.agents.writer import write_report
 from app.config import get_settings
 from app.orchestrator.planner import plan
+from app.services.progress import stage
 
 _SUFFICIENCY_MARKERS = ("http", "source", "reference", "dataset")
 
 
 def plan_node(state: dict) -> dict:
-    subtasks = plan(state["user_request"])
+    stage("plan")
+    subtasks = plan(
+        state["user_request"],
+        conversation=state.get("conversation") or "",
+    )
     return {"subtasks": subtasks, "status": "planned", "last_agent": "planner"}
 
 
 def research_node(state: dict) -> dict:
     """Run one research round. After the first pass the Coverage Scout feeds
     ``research_focus`` so later rounds only deepen the weak sub-tasks."""
+    stage("research")
     depth = state.get("research_depth", 0) + 1
     focus = state.get("research_focus") or []
     if focus:
@@ -70,6 +76,7 @@ def coverage_node(state: dict) -> dict:
     """Coverage Scout: scores evidence gathered per sub-task and, when the
     research is too thin (no numbers, no sources), routes back into a deeper
     research round with a sharper focus. This is the adaptive depth loop."""
+    stage("coverage")
     settings = get_settings()
     threshold = settings.research_coverage_threshold
     depth = state.get("research_depth", 0)
@@ -130,6 +137,7 @@ def coverage_node(state: dict) -> dict:
 
 
 def analyze_node(state: dict) -> dict:
+    stage("analyze")
     result = run_analysis(state.get("raw_data", ""), state["user_request"])
     return {
         "analysis_code": result["analysis_code"],
@@ -142,9 +150,11 @@ def analyze_node(state: dict) -> dict:
 
 
 def report_node(state: dict) -> dict:
+    stage("report")
     draft = write_report(
         {
             "user_request": state["user_request"],
+            "conversation": state.get("conversation") or "",
             "research_results": state.get("research_results") or [],
             "research_sources": state.get("research_sources") or [],
             "analysis_output": state.get("analysis_output") or "",
@@ -164,6 +174,7 @@ def report_node(state: dict) -> dict:
 
 
 def critique_node(state: dict) -> dict:
+    stage("critique")
     settings = get_settings()
     verdict = critique_report(state.get("report", ""), state["user_request"])
     iterations = state.get("iterations", 0)
@@ -181,6 +192,7 @@ def critique_node(state: dict) -> dict:
 
 
 def finalize_node(state: dict) -> dict:
+    stage("finalize")
     return {
         "report": state.get("report", ""),
         "status": "completed",

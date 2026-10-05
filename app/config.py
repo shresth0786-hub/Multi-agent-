@@ -15,11 +15,22 @@ class Settings(BaseSettings):
         extra="ignore",
     )
 
+    # LLM provider: "openai" (default) or "gemini" (Google Gemini).
+    llm_provider: str = "openai"
+
     # LLM (OpenAI)
     openai_api_key: str = ""
     openai_model: str = "gpt-4o-mini"
     openai_embedding_model: str = "text-embedding-3-small"
     llm_temperature: float = 0.2
+    llm_max_retries: int = 1
+
+    # LLM (Gemini)
+    gemini_api_key: str = ""
+    gemini_model: str = "gemini-3.8-flash"
+    gemini_embedding_model: str = "models/gemini-embedding-001"
+    # Free tier allows 5 requests/minute per model; pace calls to stay under it.
+    gemini_min_request_interval_seconds: float = 15.0
 
     # Research
     tavily_api_key: str = ""
@@ -46,6 +57,9 @@ class Settings(BaseSettings):
     worker_count: int = 2
     task_timeout_seconds: int = 300
 
+    # In-app key vault (Settings panel). Tests point this at a temp file.
+    key_vault_file: Path = PROJECT_ROOT / "data" / "settings_overrides.json"
+
     # Writer / Critiquer loop
     max_critique_iterations: int = 3
     critique_threshold: float = 0.85
@@ -56,13 +70,24 @@ class Settings(BaseSettings):
         PROJECT_ROOT / "data" / "examples" / "style_examples.jsonl"
     )
 
+    # Chat UX (streaming answer mode, conversation memory, quick follow-ups)
+    max_conversation_turns: int = 8
+    quick_answer_max_words: int = 200
+    stream_chunk_delay: float = 0.02
+
     # App
     app_name: str = "multi-agent-research"
     api_prefix: str = "/api/v1"
 
     @property
     def has_llm(self) -> bool:
+        if self.llm_provider == "gemini":
+            return usable_key(self.gemini_api_key)
         return usable_key(self.openai_api_key)
+
+    @property
+    def has_gemini(self) -> bool:
+        return usable_key(self.gemini_api_key)
 
     @property
     def has_web_search(self) -> bool:

@@ -1,20 +1,36 @@
-"""Researcher agent: tool-calling agent over web search (Tavily) + FAISS.
+"""Researcher agent: gathers evidence for one sub-task.
 
-Gives the agent real tool-calling powers via ``create_react_agent``. When no
-Tavily/OpenAI keys are configured it degrades to a pure local-vectorstore
-retrieval, so the pipeline still runs end-to-end for testing.
+Two strategies:
+- OpenAI (and any tool-capable provider): a ReAct tool-calling agent over web
+  search (Tavily) + the local FAISS store via ``create_react_agent``.
+- Gemini: a single grounded call with web/local context supplied directly.
+  Gemini 3.x rejects function-call parts that arrive without a thought
+  signature, so a ReAct tool loop fails there; grounding in the prompt avoids
+  tool calls entirely.
+
+Either way it degrades to pure local-vectorstore retrieval when no keys are
+configured, so the pipeline still runs end-to-end for testing.
 """
+
+import logging
 
 from langchain_core.messages import AIMessage, HumanMessage, SystemMessage, ToolMessage
 from langgraph.prebuilt import create_react_agent
 
 from app.prompts.researcher import RESEARCHER_SYSTEM
-from app.services.llm import get_chat_model
-from app.services.tools import build_tools
+from app.services.llm import active_provider, get_chat_model
+from app.services.tools import build_tools, build_web_search_tool
 from app.services.vectorstore import search_local_documents
+
+logger = logging.getLogger(__name__)
 
 _MAX_FINDINGS_CHARS = 6000
 _MAX_SOURCE_CHARS = 800
+
+
+def _short(exc: object, limit: int = 160) -> str:
+    text = " ".join(str(exc).split())
+    return text[:limit] + ("…" if len(text) > limit else "")
 
 
 def _fallback_research(query: str) -> tuple[str, list[str]]:
@@ -27,6 +43,43 @@ def _fallback_research(query: str) -> tuple[str, list[str]]:
         )
     body = "\n\n---\n\n".join(hits)
     return body[: _MAX_FINDINGS_CHARS], [h[: _MAX_SOURCE_CHARS] for h in hits]
+
+
+def _grounded_context(query: str) -> tuple[str, list[str]]:
+    """Gather web + local evidence up front so no tool calls are needed."""
+    parts: list[str] = []
+    sources: list[str] = []
+    web = build_web_search_tool()
+    if web is not None:
+        try:
+            results = str(web.invoke({"query": query}) or "").strip()
+            if results:
+                parts.append(
+                    "### Web search results\n" + results[: _MAX_FINDINGS_CHARS // 2]
+                )
+        except Exception as exc:  # noqa: BLE001
+            logger.warning("Web search failed for %r: %s", query, _short(exc))
+    local = search_local_documents(query)
+    if local:
+        parts.append(
+            "### Local document excerpts\n" + "\n\n---\n\n".join(local)[:_MAX_FINDINGS_CHARS]
+        )
+        sources.extend(h[:_MAX_SOURCE_CHARS] for h in local)
+    return "\n\n".join(parts), sources
+
+
+def _single_shot_research(query: str, model, context: str) -> str:
+    prompt = (
+        f"{query}\n\n"
+        "Grounding context below comes from web search and our internal "
+        "documents. Answer from it, cite the file or section names you used, "
+        "and flag anything the context does not cover.\n\n"
+        f"{context}"
+    )
+    reply = model.invoke(
+        [SystemMessage(content=RESEARCHER_SYSTEM), HumanMessage(content=prompt)]
+    )
+    return str(getattr(reply, "content", "") or "").strip()[:_MAX_FINDINGS_CHARS]
 
 
 def _gather_tool_sources(messages: list) -> list[str]:
@@ -50,9 +103,42 @@ def run_research(subtask: dict, user_request: str) -> dict:
     description = subtask.get("description") or subtask.get("title", "")
     query = f"{description}\nOriginal request: {user_request}"
 
-    tools = build_tools()
     model = get_chat_model()
-    if not tools or model is None:
+    if model is None:
+        findings, sources = _fallback_research(query)
+        return {"findings": findings, "sources": sources}
+
+    if active_provider() == "gemini":
+        context, sources = _grounded_context(query)
+        if not context:
+            findings, sources = _fallback_research(query)
+            return {"findings": findings, "sources": sources}
+        try:
+            for attempt in (1, 2):
+                try:
+                    findings = _single_shot_research(query, model, context)
+                    break
+                except Exception as exc:  # noqa: BLE001
+                    if attempt == 2:
+                        raise
+                    logger.info(
+                        "Research retrying after %s for %r", _short(exc), query[:60]
+                    )
+            if findings:
+                return {"findings": findings, "sources": sources}
+        except Exception as exc:  # noqa: BLE001
+            logger.warning("Grounded research failed for %r: %s", query, _short(exc))
+            fallback, fallback_sources = _fallback_research(query)
+            return {
+                "findings": (
+                    f"{fallback}\n\n[research fell back to local retrieval: "
+                    f"{_short(exc)}]"
+                ),
+                "sources": fallback_sources or sources,
+            }
+
+    tools = build_tools()
+    if not tools:
         findings, sources = _fallback_research(query)
         return {"findings": findings, "sources": sources}
 
@@ -71,9 +157,10 @@ def run_research(subtask: dict, user_request: str) -> dict:
         sources = _gather_tool_sources(result["messages"])
         return {"findings": findings, "sources": sources}
     except Exception as exc:  # noqa: BLE001 - degrade gracefully, never crash the graph
+        logger.warning("Research agent error for %r: %s", query, _short(exc))
         fallback, fallback_sources = _fallback_research(query)
         return {
-            "findings": f"{fallback}\n\n[research agent error: {exc}]",
+            "findings": f"{fallback}\n\n[research agent error: {_short(exc)}]",
             "sources": fallback_sources,
         }
 

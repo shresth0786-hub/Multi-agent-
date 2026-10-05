@@ -44,12 +44,115 @@ def run_agent(payload: RunRequest):
     store = get_task_store()
     store.create(task_id, payload.user_request, payload.metadata)
     try:
-        response = run_task(payload.user_request, payload.metadata, task_id)
+        response = run_task(
+            payload.user_request,
+            payload.metadata,
+            task_id,
+            session_id=payload.session_id,
+            quick=payload.quick,
+        )
     except Exception as exc:  # noqa: BLE001
         store.set_status(task_id, "failed", error=str(exc))
         raise HTTPException(status_code=500, detail=f"Orchestrator failed: {exc}") from exc
     store.store_result(task_id, response.model_dump())
     return response
+
+
+@router.post("/agent/stream", tags=["orchestrator"])
+def stream_agent(payload: RunRequest):
+    """Server-Sent-Events endpoint for the ChatGPT-style chat.
+
+    Emits ``status`` (pipeline stage), ``chunk`` (streamed quick-answer text)
+    and ``answer`` events; the client renders them live.
+    """
+
+    import json
+    import time
+    from concurrent.futures import ThreadPoolExecutor
+
+    from fastapi.responses import StreamingResponse
+
+    from app.services.progress import emit, register, release, snapshot
+    from app.services.runner import (
+        conversation_context,
+        persist_conversation,
+        quick_answer_generator,
+    )
+
+    task_id = str(uuid4())
+    store = get_task_store()
+    history = (
+        store.get_conversation(payload.session_id) if payload.session_id else []
+    )
+    context = conversation_context(history)
+    use_quick = payload.quick and bool(history)
+
+    def _sse(event: dict) -> str:
+        return "data: " + json.dumps(event, default=str) + "\n\n"
+
+    def _generate():
+        try:
+            if use_quick:
+                pieces: list[str] = []
+                for event in quick_answer_generator(
+                    payload.user_request, context, task_id
+                ):
+                    if event.get("type") == "chunk":
+                        pieces.append(event["text"])
+                    yield _sse(event)
+                report = "".join(pieces)
+                persist_conversation(
+                    payload.session_id, task_id, payload.user_request, report
+                )
+                yield _sse(
+                    {
+                        "type": "answer",
+                        "data": {
+                            "task_id": task_id,
+                            "status": "completed",
+                            "quick": True,
+                            "report": report,
+                        },
+                    }
+                )
+                yield _sse({"type": "done"})
+                return
+
+            register(task_id)
+
+            def _job():
+                return run_task(
+                    payload.user_request,
+                    payload.metadata,
+                    task_id,
+                    session_id=payload.session_id,
+                    history=history,
+                    quick=False,
+                    on_event=lambda **event: emit(task_id, **event),
+                )
+
+            with ThreadPoolExecutor(max_workers=1) as executor:
+                future = executor.submit(_job)
+                seen = 0
+                while not future.done():
+                    for event in snapshot(task_id)[seen:]:
+                        seen += 1
+                        yield _sse(event)
+                    time.sleep(0.1)
+                for event in snapshot(task_id)[seen:]:
+                    seen += 1
+                    yield _sse(event)
+                response = future.result()
+                yield _sse({"type": "answer", "data": response.model_dump()})
+                yield _sse({"type": "done"})
+        finally:
+            release(task_id)
+
+    return StreamingResponse(
+        _generate(),
+        media_type="text/event-stream",
+        headers={"Cache-Control": "no-cache", "X-Accel-Buffering": "no"},
+    )
 
 
 @router.post("/webhook/agent", response_model=TaskAcceptedResponse, status_code=202, tags=["n8n"])
@@ -70,7 +173,7 @@ def webhook_generic(payload: WebhookRequest):
 def list_tasks(limit: int = 50):
     if not (0 < limit <= 200):
         raise HTTPException(status_code=422, detail="limit must be between 1 and 200")
-    return get_task_store().list(limit=limit)
+    return get_task_store().list_tasks(limit=limit)
 
 
 @router.get("/tasks/{task_id}", response_model=AgentRunResponse, tags=["orchestrator"])
@@ -123,4 +226,29 @@ def health():
         "status": "ok",
         "llm_configured": settings.has_llm,
         "web_search_configured": settings.has_web_search,
+        "provider": settings.llm_provider,
+        "gemini_configured": settings.has_gemini,
     }
+
+
+@router.get("/settings", tags=["meta"])
+def get_settings_status():
+    """Masked view of the currently active provider/keys (in-app key vault)."""
+    from app.services.env_overrides import status as vault_status
+
+    return vault_status()
+
+
+@router.post("/settings", tags=["meta"])
+def save_settings(fields: dict):
+    """Save provider/API keys from the in-app Settings panel.
+
+    Empty strings clear an override. Keys are masked in every response.
+    """
+    from app.services.env_overrides import update
+
+    allowed = {"llm_provider", "openai_api_key", "gemini_api_key", "tavily_api_key"}
+    clean = {k: v for k, v in fields.items() if k in allowed}
+    if "llm_provider" in clean and clean["llm_provider"] not in {"openai", "gemini"}:
+        raise HTTPException(status_code=422, detail="provider must be openai or gemini")
+    return update(clean)

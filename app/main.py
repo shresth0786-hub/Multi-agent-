@@ -1,4 +1,5 @@
 # NOTE: router imports `from app.api.schemas import ...` — safe at import time.
+from contextlib import asynccontextmanager
 from pathlib import Path
 
 from fastapi import FastAPI
@@ -11,6 +12,16 @@ from app.config import get_settings
 settings = get_settings()
 STATIC_DIR = Path(__file__).resolve().parent / "static"
 
+
+@asynccontextmanager
+async def lifespan(_: FastAPI):
+    # Load API keys saved from the in-app Settings panel (if any).
+    from app.services.env_overrides import apply
+
+    apply()
+    yield
+
+
 app = FastAPI(
     title="Multi-Agent Research & Execution System",
     description=(
@@ -18,6 +29,7 @@ app = FastAPI(
         "research / analysis / writing agents, exposed as the n8n bridge."
     ),
     version="0.1.0",
+    lifespan=lifespan,
 )
 
 app.include_router(router, prefix=settings.api_prefix)

@@ -120,6 +120,34 @@ python -m scripts.finetune          # prepare + launch OpenAI fine-tune
 python -m scripts.finetune --publish # write the model id into .env (OPENAI_MODEL)
 ```
 
+## ChatGPT-style chat (streaming + memory)
+
+The web UI at `/` is now a full chat: answers **stream in live** (SSE stage
+events + token chunks), each chat has **conversation memory** (per-`session_id`,
+stored in `data/tasks.sqlite`), and follow-ups get **quick answers** that stay
+grounded in what you already asked instead of re-running the whole pipeline.
+
+- First message → full multi-agent report. Later messages → short, context-aware
+  answers (toggle "Quick follow-ups" off, or turn on "Deep research", to force a
+  full pipeline run any time).
+- `POST /api/v1/agent/stream` for SSE; `POST /api/v1/agent/run` still returns the
+  complete result in one shot (n8n/webhooks unchanged).
+- "New chat" resets the local `session_id`. Visual answers get an automatic
+  plain-language TL;DR summary.
+
+```bash
+curl -N -X POST http://127.0.0.1:8000/api/v1/agent/stream \
+  -H "Content-Type: application/json" \
+  -d '{"user_request":"What were Q3 metrics?","session_id":"demo","quick":true}'
+```
+
+### Gemini as the engine (optional)
+
+Set `LLM_PROVIDER=gemini` plus `GEMINI_API_KEY=...` in `.env` and the planner,
+researcher analyst writer and critiquer all run on Google Gemini instead of
+OpenAI (embeddings fall back to Gemini when no OpenAI key is present). Revert by
+editing `LLM_PROVIDER=openai`.
+
 ## n8n
 
 Import `n8n/workflow-email-to-agent.json`. It reads an email (IMAP), posts the

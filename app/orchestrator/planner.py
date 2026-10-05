@@ -48,18 +48,30 @@ def fallback_plan(user_request: str) -> list[dict]:
     ]
 
 
-def plan(user_request: str, llm=None) -> list[dict]:
+def _conversation_context(conversation: str | None) -> str:
+    text = (conversation or "").strip()
+    return text or None
+
+
+def plan(user_request: str, llm=None, conversation: str | None = None) -> list[dict]:
     """Decompose a request into sub-tasks; guaranteed to return a valid plan."""
     request = (user_request or "").strip()
     llm = llm if llm is not None else get_chat_model()
+    context = _conversation_context(conversation)
 
     if llm is not None and request:
         try:
             structured = llm.with_structured_output(SubtaskSet)
+            message = request
+            if context:
+                message = (
+                    f"Earlier conversation (reference only):\n{context}\n\n"
+                    f"Plan sub-tasks for the latest request:\n{request}"
+                )
             result = structured.invoke(
                 [
                     SystemMessage(content=PLANNER_SYSTEM),
-                    HumanMessage(content=request),
+                    HumanMessage(content=message),
                 ]
             )
             subtasks: list[dict] = []

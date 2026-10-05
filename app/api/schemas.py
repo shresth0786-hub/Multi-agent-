@@ -6,6 +6,14 @@ from pydantic import BaseModel, Field
 class RunRequest(BaseModel):
     user_request: str = Field(min_length=1, description="The complex request to solve")
     metadata: dict[str, Any] = Field(default_factory=dict)
+    session_id: str = Field(
+        default="", description="Conversation id; enables memory across messages"
+    )
+    quick: bool = Field(
+        default=False,
+        description="Short direct answer for follow-ups; pipeline is skipped "
+        "when the session already has context",
+    )
 
 
 class WebhookRequest(BaseModel):
@@ -26,6 +34,7 @@ class AnalyzeRequest(BaseModel):
 class AgentRunResponse(BaseModel):
     task_id: str
     status: str
+    quick: bool = False
     report: str = ""
     report_drafts: list[str] = Field(default_factory=list)
     critique_feedback: list[str] = Field(default_factory=list)

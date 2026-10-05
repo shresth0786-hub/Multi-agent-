@@ -22,6 +22,7 @@ class ResearchState(TypedDict):
 
     task_id: str
     user_request: str
+    conversation: str
     subtask_index: int
     subtasks: List[dict]
     research_depth: int
@@ -47,10 +48,11 @@ class ResearchState(TypedDict):
     messages: NotRequired[List[BaseMessage]]
 
 
-def initial_state(user_request: str, task_id: str | None = None) -> dict:
+def initial_state(user_request: str, task_id: str | None = None, conversation: str = "") -> dict:
     return {
         "task_id": task_id or str(uuid4()),
         "user_request": user_request,
+        "conversation": conversation,
         "subtask_index": 0,
         "subtasks": [],
         "research_depth": 0,

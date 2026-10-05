@@ -26,6 +26,7 @@
     <button class="tab tab--active" data-tab="chat" role="tab">Chat</button>
     <button class="tab" data-tab="history" role="tab">Task History</button>
     <button class="tab" data-tab="sandbox" role="tab">Sandbox</button>
+    <button class="tab" data-tab="settings" role="tab">Settings</button>
   </nav>
 
   <!-- CHAT TAB -->
@@ -36,13 +37,24 @@
         <span class="switch-track"><span class="switch-thumb"></span></span>
         <span>Visual answers</span>
       </label>
+      <label class="switch" title="Follow-ups get short answers grounded in this chat">
+        <input type="checkbox" id="quickToggle" />
+        <span class="switch-track"><span class="switch-thumb"></span></span>
+        <span>Quick follow-ups</span>
+      </label>
+      <label class="switch" title="Force the full multi-agent pipeline for this chat">
+        <input type="checkbox" id="deepToggle" />
+        <span class="switch-track"><span class="switch-thumb"></span></span>
+        <span>Deep research</span>
+      </label>
+      <button id="newChatBtn" class="btn" type="button" title="Start a fresh conversation">New chat</button>
     </div>
 
     <div id="chatMessages" class="chat-messages"></div>
 
     <form id="chatForm" class="chat-form" autocomplete="off">
       <textarea id="chatInput" rows="2" spellcheck="false"
-        placeholder="Type your request, then press Enter. Shift+Enter for a new line."></textarea>
+        placeholder="Ask anything (or a follow-up on what we discussed). Press Enter to send."></textarea>
       <button id="sendBtn" class="btn btn--primary" type="submit">Send</button>
     </form>
     <div id="chatHint" class="hint">Press <b>Enter</b> to run the pipeline.</div>
@@ -80,6 +92,35 @@ with open("analysis_result.json", "w") as fh:
       </div>
       <pre id="analyzeOut" class="code-block"></pre>
       <div id="analyzeCharts" class="charts"></div>
+    </div>
+  </section>
+<!-- SETTINGS TAB -->
+  <section id="panel-settings" class="panel">
+    <div class="card">
+      <h3>Engine &amp; API keys</h3>
+      <p class="muted" style="margin-top:4px">Keys are stored by the application
+        (never committed) and take effect immediately. Leave a field empty to keep
+        the current value; clear a key by deleting its text and saving.</p>
+      <label class="field-label" for="providerSelect">LLM provider</label>
+      <select id="providerSelect" class="select">
+        <option value="openai">OpenAI</option>
+        <option value="gemini">Google Gemini</option>
+      </select>
+
+      <label class="field-label" for="openaiKeyField">OpenAI API key</label>
+      <input id="openaiKeyField" class="text-field" type="password" placeholder="sk-..." autocomplete="off" />
+
+      <label class="field-label" for="geminiKeyField">Gemini API key</label>
+      <input id="geminiKeyField" class="text-field" type="password" placeholder="AQ.... or AIza..." autocomplete="off" />
+
+      <label class="field-label" for="tavilyKeyField">Tavily (web search) API key</label>
+      <input id="tavilyKeyField" class="text-field" type="password" placeholder="tvly-..." autocomplete="off" />
+
+      <div class="row row--controls">
+        <button id="saveSettingsBtn" class="btn btn--primary">Save &amp; apply</button>
+        <span id="settingsStatus" class="muted"></span>
+      </div>
+      <div id="settingsSummary" class="statusline" hidden></div>
     </div>
   </section>
 </main>

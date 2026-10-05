@@ -27,9 +27,17 @@ def _get_executor() -> concurrent.futures.ThreadPoolExecutor:
     return _executor
 
 
-def submit(user_request: str, metadata: dict | None = None) -> str:
+def submit(
+    user_request: str,
+    metadata: dict | None = None,
+    session_id: str | None = None,
+    quick: bool = False,
+) -> str:
     """Enqueue a task; returns the task_id to poll with GET /tasks/{id}."""
     task_id = str(uuid4())
+    metadata = metadata or {}
+    session_id = session_id or metadata.pop("session_id", "") or None
+    quick = quick or bool(metadata.pop("quick", False))
     store = get_task_store()
     store.create(task_id, user_request, metadata)
 
@@ -38,7 +46,13 @@ def submit(user_request: str, metadata: dict | None = None) -> str:
         try:
             from app.services.runner import run_task
 
-            response = run_task(user_request, metadata, task_id)
+            response = run_task(
+                user_request,
+                metadata,
+                task_id,
+                session_id=session_id or "",
+                quick=quick,
+            )
             response.status = "completed"
             store.store_result(task_id, response.model_dump(), status="completed")
         except Exception as exc:  # noqa: BLE001

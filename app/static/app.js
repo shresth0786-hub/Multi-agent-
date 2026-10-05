@@ -1,4 +1,4 @@
-/* Multi-Agent Research Console - UI logic (vanilla JS, talks to /api/v1) */
+/* Multi-Agent Research Console - ChatGPT-style UI (vanilla JS, talks to /api/v1) */
 const API = "/api/v1";
 
 const $ = (sel) => document.querySelector(sel);
@@ -13,6 +13,43 @@ const esc = (s) =>
 
 const fmtTime = (iso) => new Date(iso).toLocaleString();
 
+/* ---------------- session & settings ---------------- */
+const sessionId = () => {
+  let id = localStorage.getItem("sessionId");
+  if (!id) {
+    id = "s-" + Date.now().toString(36) + "-" + Math.random().toString(36).slice(2, 10);
+    localStorage.setItem("sessionId", id);
+  }
+  return id;
+};
+
+let visualMode = localStorage.getItem("visualMode") === "1";
+let quickMode = localStorage.getItem("quickMode") !== "0";
+
+const visualToggle = $("#visualToggle");
+visualToggle.checked = visualMode;
+visualToggle.addEventListener("change", () => {
+  visualMode = visualToggle.checked;
+  localStorage.setItem("visualMode", visualMode ? "1" : "0");
+});
+
+const quickToggle = $("#quickToggle");
+quickToggle.checked = quickMode;
+quickToggle.addEventListener("change", () => {
+  quickMode = quickToggle.checked;
+  localStorage.setItem("quickMode", quickMode ? "1" : "0");
+});
+
+const newChatBtn = $("#newChatBtn");
+newChatBtn.addEventListener("click", () => {
+  localStorage.removeItem("sessionId");
+  $("#chatMessages").innerHTML = "";
+  chatHint("Ask anything. Follow-ups use quick answers with memory of this chat.");
+  welcome();
+});
+
+const deepToggle = $("#deepToggle");
+
 /* ---------------- tabs ---------------- */
 $$(".tab").forEach((tab) => {
   tab.addEventListener("click", () => {
@@ -21,6 +58,7 @@ $$(".tab").forEach((tab) => {
     tab.classList.add("tab--active");
     $("#panel-" + tab.dataset.tab).classList.add("panel--active");
     if (tab.dataset.tab === "history") loadHistory();
+    if (tab.dataset.tab === "settings") loadSettings();
   });
 });
 
@@ -33,72 +71,170 @@ async function loadHealth() {
     badge.textContent = h.status === "ok" ? "API OK" : "API DEGRADED";
     const mode = $("#modeBadge");
     mode.textContent = h.llm_configured
-      ? "LIVE MODE"
+      ? `LIVE MODE\u00b7${(h.provider || "openai").toUpperCase()}`
       : "FALLBACK MODE (no API keys)";
     mode.classList.toggle("badge--amber", !h.llm_configured);
     mode.classList.toggle("badge--green", !!h.llm_configured);
   } catch {
-    const badge = $("#healthBadge");
-    badge.classList.add("badge--red");
-    badge.textContent = "API DOWN";
+    $("#healthBadge").classList.add("badge--red");
+    $("#healthBadge").textContent = "API DOWN";
   }
 }
 
-/* ---------------- chat loop ---------------- */
+/* ---------------- chat ---------------- */
 const chat = $("#chatMessages");
+let msgSeq = 0;
+let suggestionBar = null;
 
 function bubble(kind, html) {
   const el = document.createElement("div");
-  el.className = "msg msg-" + kind;
+  el.className = "msg " + kind;
   el.innerHTML = html;
   chat.appendChild(el);
   chat.scrollTop = chat.scrollHeight;
   return el;
 }
 
-function bubbleWork() {
-  const el = bubble("ai working", '<span class="spinner"></span><span>Running pipeline (plan &#8594; research &#8594; coverage &#8594; analyze &#8594; report &#8594; critique)&#8230;</span>');
-  return el;
+function removeSuggestions() {
+  if (suggestionBar) { suggestionBar.remove(); suggestionBar = null; }
 }
 
-async function ask(question) {
+function addSuggestions(question) {
+  removeSuggestions();
+  const ideas = [
+    `Break ${question.slice(0, 60)} into decisions`,
+    "Summarize the main risks",
+    "What data would change your answer?",
+  ];
+  const el = document.createElement("div");
+  el.className = "chips";
+  el.innerHTML = ideas.map((t) => `<button class="chip-btn">${esc(t)}</button>`).join("");
+  el.querySelectorAll(".chip-btn").forEach((btn) => {
+    btn.addEventListener("click", () => ask(btn.textContent));
+  });
+  chat.appendChild(el);
+  suggestionBar = el;
+  chat.scrollTop = chat.scrollHeight;
+}
+
+function workingBubble() {
+  const el = bubble("msg-ai working", `<div class="msg-bubble msg-bubble--ai"><div class="stage"><span class="spinner"></span><span class="stage-text">Starting the research pipeline\u2026</span></div></div>`);
+  return { el, text: el.querySelector(".stage-text") };
+}
+
+function chatHint(text) {
+  $("#chatHint").innerHTML = text;
+}
+
+async function ask(question, forceFull = deepToggle.checked) {
   const q = question.trim();
   if (!q) { $("#chatInput").focus(); return; }
 
-  bubble("user", `<div class="msg-bubble">${esc(q)}</div>`);
+  bubble("msg-user", `<div class="msg-bubble msg-bubble--user">${esc(q)}</div>`);
   $("#chatInput").value = "";
   $("#chatInput").disabled = true;
   $("#sendBtn").disabled = true;
-  const working = bubbleWork();
+  const w = workingBubble();
+  removeSuggestions();
 
-  try {
-    const res = await fetch(`${API}/agent/run`, {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ user_request: q }),
-    });
-    const data = res.ok ? await res.json() : { status: "failed", error: await res.text() };
-    working.remove();
-    if (data.status === "failed") {
-      bubble("ai", `<div class="msg-bubble msg-bubble--error">Request failed: ${esc(data.error || "unknown error")}</div>`);
-    } else {
-      createAnswer(data);
+  let chunkShown = false;
+  let chunkText = "";
+  let chunkEl = null;
+  let finalData = null;
+
+  const showChunk = (text) => {
+    if (!chunkEl) {
+      chunkEl = bubble("msg-ai", `<div class="msg-bubble msg-bubble--ai"><div class="markdown"></div><span class="cursor"></span></div>`);
     }
-  } catch (e) {
-    working.remove();
-    bubble("ai", `<div class="msg-bubble msg-bubble--error">Could not reach server: ${esc(String(e))}</div>`);
-  } finally {
+    chunkShown = true;
+    chunkText += text;
+    const render = () => {
+      const md = chunkEl.querySelector(".markdown");
+      md.innerHTML = window.marked ? window.marked.parse(chunkText) : esc(chunkText);
+      chat.scrollTop = chat.scrollHeight;
+    };
+    if (typeof requestAnimationFrame === "function") requestAnimationFrame(render);
+    else render();
+  };
+
+  const finalizeChunks = () => {
+    if (chunkEl) { chunkEl.querySelector(".cursor")?.remove(); }
+    if (chunkShown) { addSuggestions(q); reenable(); return true; }
+    return false;
+  };
+
+  const reenable = () => {
     $("#chatInput").disabled = false;
     $("#sendBtn").disabled = false;
     $("#chatInput").focus();
-    $("#chatHint").innerHTML = "Done. Ask another query and press <b>Enter</b>, or <b>Shift+Enter</b> for a new line.";
+    chatHint("Sent. Ask a follow-up and press <b>Enter</b> \u2014 it remembers this conversation.");
+  };
+
+  try {
+    const useQuick = quickMode && !deepToggle.checked;
+    const res = await fetch(`${API}/agent/stream`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ user_request: q, session_id: sessionId(), quick: useQuick }),
+    });
+
+    if (!res.ok || !res.body) {
+      w.el.remove();
+      bubble("msg-ai", `<div class="msg-bubble msg-bubble--error">Request failed (${res.status}): ${esc(await res.text())}</div>`);
+      reenable();
+      return;
+    }
+
+    const reader = res.body.getReader();
+    const decoder = new TextDecoder();
+    let buffer = "";
+
+    const handleEvent = (ev) => {
+      if (ev.type === "status") {
+        w.text.textContent = ev.text || "Working\u2026";
+      } else if (ev.type === "chunk") {
+        w.el.remove();
+        showChunk(ev.text || "");
+      } else if (ev.type === "answer") {
+        w.el.remove();
+        finalData = ev.data || {};
+        if (finalizeChunks()) return;
+        createAnswer(finalData);
+        addSuggestions(q);
+      }
+    };
+
+    while (true) {
+      const { value, done } = await reader.read();
+      if (done) break;
+      buffer += decoder.decode(value, { stream: true });
+      let idx;
+      while ((idx = buffer.indexOf("\n\n")) !== -1) {
+        const rawBlock = buffer.slice(0, idx);
+        buffer = buffer.slice(idx + 2);
+        for (const line of rawBlock.split("\n")) {
+          if (!line.startsWith("data: ")) continue;
+          try { handleEvent(JSON.parse(line.slice(6))); } catch { /* ignore */ }
+        }
+      }
+    }
+    if (!w.el.isConnected && !chunkShown && !finalData) {
+      reenable();
+    } else if (!finalData && !chunkShown) {
+      w.el.remove();
+      bubble("msg-ai", `<div class="msg-bubble msg-bubble--error">Stream ended with no answer.</div>`);
+      reenable();
+    } else {
+      reenable();
+    }
+  } catch (e) {
+    w.el.remove();
+    bubble("msg-ai", `<div class="msg-bubble msg-bubble--error">Could not reach server: ${esc(String(e))}</div>`);
+    reenable();
   }
 }
 
-$("#chatForm").addEventListener("submit", (e) => {
-  e.preventDefault();
-  ask($("#chatInput").value);
-});
+$("#chatForm").addEventListener("submit", (e) => { e.preventDefault(); ask($("#chatInput").value); });
 
 $("#chatInput").addEventListener("keydown", (e) => {
   if (e.key === "Enter" && !e.shiftKey) {
@@ -107,17 +243,11 @@ $("#chatInput").addEventListener("keydown", (e) => {
   }
 });
 
-bubble("ai", `<div class="msg-bubble msg-bubble--hint">Hi! Ask any analytical question below and press <b>Enter</b> to run the multi-agent pipeline.</div>`);
+function welcome() {
+  bubble("msg-ai", `<div class="msg-bubble msg-bubble--hint">Hi! Ask any analytical question and press <b>Enter</b>. Follow-ups get <b>quick answers</b> that remember this chat \u2014 toggle <b>Deep research</b> for a full multi-agent report.</div>`);
+}
+welcome();
 $("#chatInput").focus();
-
-/* ---------------- visual mode ---------------- */
-const visualToggle = $("#visualToggle");
-let visualMode = localStorage.getItem("visualMode") === "1";
-visualToggle.checked = visualMode;
-visualToggle.addEventListener("change", () => {
-  visualMode = visualToggle.checked;
-  localStorage.setItem("visualMode", visualMode ? "1" : "0");
-});
 
 /* ---------------- answer rendering ---------------- */
 function statusChip(s) {
@@ -126,21 +256,34 @@ function statusChip(s) {
 
 let ansSeq = 0;
 
+function tldr(report) {
+  if (!report) return "";
+  const plain = report
+    .replace(/[#*_>`[\]-]/g, " ")
+    .replace(/\s+/g, " ")
+    .trim();
+  const first = plain.split(/\.(?: |$)/).slice(0, 2).join(". ") + ".";
+  const words = first.split(/\s+/).slice(0, 40).join(" ");
+  return words;
+}
+
 function createAnswer(data) {
   const el = document.createElement("div");
   el.className = "msg msg-ai";
   el._id = "ans" + ++ansSeq;
   el.innerHTML = `
     <div class="msg-bubble msg-bubble--ai">
-      <div class="answer-head">
+      ${data.quick ? `<div class="answer-head"><div class="answer-title">Quick answer</div></div>` : ""}
+      ${!data.quick ? `<div class="answer-head">
         <div class="answer-title">Answer</div>
         <div class="answer-tabs">
           <button class="ans-tab ${visualMode ? "" : "ans-tab--active"}" data-view="text">Text</button>
           <button class="ans-tab ${visualMode ? "ans-tab--active" : ""}" data-view="visual">Visual</button>
         </div>
-      </div>
-      <div class="answer-view ${visualMode ? "" : "answer-view--active"}" data-view="text">${buildTextHTML(data)}</div>
-      <div class="answer-view answer-view--visual ${visualMode ? "answer-view--active" : ""}" data-view="visual"></div>
+      </div>` : ""}
+      ${data.report && !data.quick ? `<div class="tldr">TL;DR\u2014${esc(tldr(data.report))}</div>` : ""}
+      <div class="answer-view ${visualMode ? "" : "answer-view--active"} ${data.quick ? "answer-view--active" : ""}" data-view="text">${buildTextHTML(data)}</div>
+      ${data.quick ? "" : `<div class="answer-view answer-view--visual ${visualMode ? "answer-view--active" : ""}" data-view="visual"></div>`}
     </div>`;
 
   el.querySelectorAll(".ans-tab").forEach((btn) => {
@@ -154,7 +297,7 @@ function createAnswer(data) {
 
   chat.appendChild(el);
   chat.scrollTop = chat.scrollHeight;
-  if (visualMode) renderVisual(el, data);
+  if (visualMode && !data.quick) renderVisual(el, data);
 }
 
 function buildTextHTML(d) {
@@ -190,6 +333,7 @@ function buildTextHTML(d) {
     : `<pre class="code-block">${esc(d.report || "(no report)")}</pre>`;
 
   return `
+    ${d.quick ? `<div class="markdown">${reportHtml}</div>` : `
     <div class="grid cards-meta">${meta}</div>
 
     <div class="grid two">
@@ -213,7 +357,7 @@ function buildTextHTML(d) {
       <pre class="code-block">${esc(d.analysis_output + (d.analysis_result ? "\n\nresult:\n" + JSON.stringify(d.analysis_result, null, 2) : ""))}</pre>
     </details>
 
-    ${d.report ? `<div class="card"><h3>Report</h3><div class="markdown">${reportHtml}</div></div>` : ""}`;
+    ${d.report ? `<div class="card"><h3>Report</h3><div class="markdown">${reportHtml}</div></div>` : ""}`}`;
 }
 
 /* ---------------- visual rendering (Chart.js) ---------------- */
@@ -249,6 +393,7 @@ function renderVisual(el, d) {
 
   view.innerHTML = `
     ${summaryChips(d)}
+    <div class="card tldr">&#128172; Plain-language recap\u2014${esc(tldr(d.report))}</div>
     <div class="grid two">
       <div class="card"><h3>Coverage score</h3><div class="chart-box"><canvas id="${el._id}-gauge"></canvas></div></div>
       <div class="card"><h3>Sub-tasks: sufficient vs thin</h3><div class="chart-box"><canvas id="${el._id}-donut"></canvas></div></div>
@@ -267,6 +412,7 @@ function renderVisual(el, d) {
     options: { cutout: "72%", responsive: true, maintainAspectRatio: false, plugins: { legend: { display: false }, centerText: { text: covPct + "%" } } },
     plugins: [centerTextPlugin],
   });
+  charts.push(gauge);
 
   const okCount = ev.filter((e) => e.sufficient).length;
   const thinCount = ev.length - okCount;
@@ -275,23 +421,26 @@ function renderVisual(el, d) {
     data: { labels: ["Sufficient", "Thin"], datasets: [{ data: [okCount, thinCount], backgroundColor: [CHART_COLORS.ok, CHART_COLORS.thin], borderWidth: 0 }] },
     options: { responsive: true, maintainAspectRatio: false },
   });
+  charts.push(donut);
 
   const labels = ev.length ? ev.map((e) => e.subtask || "?") : ["No evidence"];
   const scores = ev.length ? ev.map((e) => Math.round((e.score ?? 0) * 100)) : [0];
   const colors = ev.length ? ev.map((e) => (e.sufficient ? CHART_COLORS.ok : CHART_COLORS.thin)) : ["#4f8cff"];
-  const evidence = new Chart(document.getElementById(`${el._id}-evidence`), {
+  const evidenceBar = new Chart(document.getElementById(`${el._id}-evidence`), {
     type: "bar",
     data: { labels, datasets: [{ data: scores, backgroundColor: colors, borderRadius: 6 }] },
     options: { indexAxis: "y", responsive: true, maintainAspectRatio: false, scales: { x: { max: 100, ticks: { color: "#93a1bd" } }, y: { ticks: { color: "#e8edf7" } } }, plugins: { legend: { display: false } } },
   });
+  charts.push(evidenceBar);
 
-  const sources = new Chart(document.getElementById(`${el._id}-sources`), {
+  const sourcesBar = new Chart(document.getElementById(`${el._id}-sources`), {
     type: "bar",
     data: { labels, datasets: [{ data: ev.length ? ev.map((e) => e.sources ?? 0) : [0], backgroundColor: CHART_COLORS.accent, borderRadius: 6 }] },
-    options: { indexAxis: "y", responsive: true, maintainAspectRatio: false, scales: { x: { ticks: { color: "#93a1bd" }, beginAtZero: true } , y: { ticks: { color: "#e8edf7" } } }, plugins: { legend: { display: false } } },
+    options: { indexAxis: "y", responsive: true, maintainAspectRatio: false, scales: { x: { ticks: { color: "#93a1bd" }, beginAtZero: true }, y: { ticks: { color: "#e8edf7" } } }, plugins: { legend: { display: false } } },
   });
+  charts.push(sourcesBar);
 
-  el._visualCharts = [gauge, donut, evidence, sources];
+  el._visualCharts = charts;
   chat.scrollTop = chat.scrollHeight;
 }
 
@@ -347,12 +496,61 @@ async function loadHistory() {
 }
 $("#refreshHistoryBtn").addEventListener("click", loadHistory);
 
+/* ---------------- settings (in-app key vault) ---------------- */
+async function loadSettings() {
+  const summary = $("#settingsSummary");
+  try {
+    const s = await (await fetch(`${API}/settings`)).json();
+    $("#providerSelect").value = s.provider === "gemini" ? "gemini" : "openai";
+    $("#openaiKeyField").placeholder = s.openai_api_key ? `current: ${s.openai_api_key}` : "sk-...";
+    $("#geminiKeyField").placeholder = s.gemini_api_key ? `current: ${s.gemini_api_key}` : "AQ.... / AIza...";
+    $("#tavilyKeyField").placeholder = s.tavily_api_key ? `current: ${s.tavily_api_key}` : "tvly-...";
+    summary.hidden = false;
+    summary.innerHTML = `
+      <span class="chip ${s.llm_configured ? "ok" : "thin"}">${s.llm_configured ? "LIVE\u00b7" + (s.provider || "openai").toUpperCase() : "FALLBACK MODE"}</span>
+      <span>${s.web_search_configured ? "web search live" : "web search off"}</span>`;
+  } catch (e) {
+    summary.hidden = false;
+    summary.innerHTML = `<span class="chip thin">could not load settings: ${esc(String(e))}</span>`;
+  }
+}
+
+async function saveSettings() {
+  const btn = $("#saveSettingsBtn");
+  btn.disabled = true;
+  $("#settingsStatus").textContent = "saving\u2026";
+  try {
+    const resp = await fetch(`${API}/settings`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        llm_provider: $("#providerSelect").value,
+        openai_api_key: $("#openaiKeyField").value,
+        gemini_api_key: $("#geminiKeyField").value,
+        tavily_api_key: $("#tavilyKeyField").value,
+      }),
+    });
+    if (!resp.ok) throw new Error(await resp.text());
+    $("#openaiKeyField").value = "";
+    $("#geminiKeyField").value = "";
+    $("#tavilyKeyField").value = "";
+    $("#settingsStatus").textContent = "saved";
+    loadHealth();
+    await loadSettings();
+  } catch (e) {
+    $("#settingsStatus").textContent = "error: " + String(e);
+  } finally {
+    btn.disabled = false;
+  }
+}
+$("#saveSettingsBtn").addEventListener("click", saveSettings);
+
 /* ---------------- sandbox ---------------- */
 async function runSandbox() {
   const code = $("#code").value.trim();
   if (!code) return;
   $("#analyzeBtn").disabled = true;
-  $("#analyzeStatus").textContent = "running&#8230;";
+  $("#analyzeStatus").textContent = "running\u2026";
   try {
     const d = await (await fetch(`${API}/analyze`, {
       method: "POST",

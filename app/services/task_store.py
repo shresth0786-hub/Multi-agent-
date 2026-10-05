@@ -22,6 +22,17 @@ CREATE TABLE IF NOT EXISTS tasks (
     created_at  TEXT NOT NULL,
     updated_at  TEXT NOT NULL
 );
+
+CREATE TABLE IF NOT EXISTS conversations (
+    id          INTEGER PRIMARY KEY AUTOINCREMENT,
+    session_id  TEXT NOT NULL,
+    task_id     TEXT,
+    role        TEXT NOT NULL,
+    content     TEXT NOT NULL,
+    created_at  TEXT NOT NULL
+);
+CREATE INDEX IF NOT EXISTS idx_conversations_session
+    ON conversations (session_id, id);
 """
 
 _lock = threading.Lock()
@@ -37,7 +48,7 @@ def _connect(db_path: Path) -> sqlite3.Connection:
     conn.row_factory = sqlite3.Row
     conn.execute("PRAGMA journal_mode=WAL;")
     conn.execute("PRAGMA busy_timeout=5000;")
-    conn.execute(_SCHEMA)
+    conn.executescript(_SCHEMA)
     return conn
 
 
@@ -53,6 +64,22 @@ class _TaskStore:
                 (
                     task_id,
                     "queued",
+                    user_request,
+                    json.dumps(metadata or {}),
+                    _now(),
+                    _now(),
+                ),
+            )
+
+    def ensure(self, task_id: str, user_request: str, metadata: dict | None = None) -> None:
+        """Create the row only when absent (keeps queue-created tasks intact)."""
+        with _lock, _connect(self._path) as conn:
+            conn.execute(
+                "INSERT OR IGNORE INTO tasks (task_id, status, user_request, metadata, "
+                "created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?)",
+                (
+                    task_id,
+                    "running",
                     user_request,
                     json.dumps(metadata or {}),
                     _now(),
@@ -86,7 +113,7 @@ class _TaskStore:
         result["payload"] = json.loads(result["payload"]) if result.get("payload") else None
         return result
 
-    def list(self, limit: int = 50) -> list[dict]:
+    def list_tasks(self, limit: int = 50) -> list[dict]:
         with _connect(self._path) as conn:
             rows = conn.execute(
                 "SELECT task_id, status, user_request, created_at, updated_at, error "
@@ -94,6 +121,56 @@ class _TaskStore:
                 (limit,),
             ).fetchall()
         return [dict(r) for r in rows]
+
+    # ---------------- conversation memory (multi-turn chat) ----------------
+
+    def append_conversation(
+        self,
+        session_id: str,
+        task_id: str,
+        role: str,
+        content: str,
+        max_turns: int = 50,
+    ) -> None:
+        """Append one chat turn to a session and prune older turns."""
+        if not session_id or not content.strip():
+            return
+        with _lock, _connect(self._path) as conn:
+            conn.execute(
+                "INSERT INTO conversations (session_id, task_id, role, content, created_at) "
+                "VALUES (?, ?, ?, ?, ?)",
+                (session_id, task_id, role, content, _now()),
+            )
+            conn.execute(
+                "DELETE FROM conversations WHERE id NOT IN ("
+                "  SELECT id FROM conversations WHERE session_id = ? "
+                "  ORDER BY id DESC LIMIT ?"
+                ")",
+                (session_id, max_turns),
+            )
+
+    def get_conversation(self, session_id: str, limit: int = 20) -> list[dict]:
+        """Return this session's recent turns as ``[{role, content}]``."""
+        if not session_id:
+            return []
+        with _connect(self._path) as conn:
+            rows = conn.execute(
+                "SELECT role, content, created_at FROM conversations "
+                "WHERE session_id = ? ORDER BY id ASC LIMIT ?",
+                (session_id, limit),
+            ).fetchall()
+        return [
+            {"role": r["role"], "content": r["content"], "created_at": r["created_at"]}
+            for r in rows
+        ]
+
+    def clear_conversation(self, session_id: str) -> None:
+        if not session_id:
+            return
+        with _lock, _connect(self._path) as conn:
+            conn.execute(
+                "DELETE FROM conversations WHERE session_id = ?", (session_id,)
+            )
 
 
 _task_store = _TaskStore()
