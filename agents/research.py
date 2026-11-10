@@ -40,12 +40,32 @@ def _fetch_arxiv(query: str, max_results: int = MAX_RESULTS) -> bytes:
     raise RuntimeError(f"arXiv fetch failed after {ARXIV_RETRIES+1} tries: {last_err}") from last_err
 
 
+def _sanitize_query(q: str, limit: int = 150) -> str:
+    # arXiv 500 often from too-long / special-char query (problem adds many words)
+    # Keep first ~25 words / 150 chars, strip quotes
+    q = q.replace('"', " ").replace("'", " ").strip()
+    if len(q) > limit:
+        q = q[:limit].rsplit(" ", 1)[0]
+    # Collapse whitespace
+    return " ".join(q.split())
+
+
 def research_agent(state: ResearchState) -> Dict[str, Any]:
     query = state["query"]
-    # Enrich search with problem keywords if provided (agent knows user context)
     problem = state.get("problem", "").strip()
-    search_query = f"{query} {problem}" if problem else query
-    xml_data = _fetch_arxiv(search_query)
+    # Use problem keywords only (first 20 words) to avoid 500; don't send full paragraph to arXiv
+    if problem:
+        short_problem = " ".join(problem.split()[:20])
+        search_query = _sanitize_query(f"{query} {short_problem}")
+    else:
+        search_query = _sanitize_query(query)
+    try:
+        xml_data = _fetch_arxiv(search_query)
+    except Exception as e:
+        # Graceful fallback: arXiv 500 is temporary - continue workflow with empty papers
+        # so analysis/report still run (or fallback to local FAISS via app/ path)
+        print(f"[research_agent] arXiv failed for '{search_query}': {e} - continuing with empty results")
+        return {"paper_metadata": []}
 
     root = ET.fromstring(xml_data)
     ns = {"arxiv": "http://www.w3.org/2005/Atom"}
