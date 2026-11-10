@@ -1,0 +1,30 @@
+﻿# Python
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
+.venv/
+venv/
+*.egg-info/
+
+# Env & secrets
+.env
+.env.free
+chroma_db/
+*.db
+*.sqlite
+*.sqlite3
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Streamlit
+.streamlit/
+
+# Legacy spaced files (migrated to agents/ package)
+agents analysis.py
+agents comparision.py
+agents critics.py
+agents report.py
+agents research.py

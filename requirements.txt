@@ -1,0 +1,16 @@
+langchain>=0.3
+langchain-openai>=0.2
+langchain-community>=0.3
+langchain-chroma>=0.2
+langgraph>=0.2
+chromadb>=0.5
+python-dotenv>=1.0
+openai>=1.0
+tiktoken>=0.6
+# Free providers (pick one, or install all)
+langchain-groq>=0.2
+langchain-google-genai>=2.0
+langchain-ollama>=0.2
+langchain-huggingface>=0.1
+sentence-transformers>=3.0
+torch --index-url https://download.pytorch.org/whl/cpu
