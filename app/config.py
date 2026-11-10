@@ -15,7 +15,7 @@ class Settings(BaseSettings):
         extra="ignore",
     )
 
-    # LLM provider: "openai" (default) or "gemini" (Google Gemini).
+    # LLM provider: "openai" | "gemini" | "groq" | "ollama" (auto free-first)
     llm_provider: str = "openai"
 
     # LLM (OpenAI)
@@ -25,12 +25,24 @@ class Settings(BaseSettings):
     llm_temperature: float = 0.2
     llm_max_retries: int = 1
 
-    # LLM (Gemini)
+    # LLM (Gemini - free 1500 req/day, 5/min; use 3.5-flash for stability)
     gemini_api_key: str = ""
-    gemini_model: str = "gemini-3.8-flash"
+    gemini_model: str = "gemini-3.5-flash"
     gemini_embedding_model: str = "models/gemini-embedding-001"
-    # Free tier allows 5 requests/minute per model; pace calls to stay under it.
     gemini_min_request_interval_seconds: float = 15.0
+
+    # LLM (Groq - free 14k req/day, fastest)
+    groq_api_key: str = ""
+    groq_model: str = "llama-3.1-8b-instant"
+
+    # LLM (Ollama - fully local, no key)
+    ollama_base_url: str = "http://localhost:11434"
+    ollama_model: str = "llama3.1"
+    ollama_embedding_model: str = "nomic-embed-text"
+
+    # Embeddings (HF local = free, no key)
+    embedding_provider: str = "huggingface"
+    hf_embedding_model: str = "sentence-transformers/all-MiniLM-L6-v2"
 
     # Research
     tavily_api_key: str = ""
@@ -81,13 +93,22 @@ class Settings(BaseSettings):
 
     @property
     def has_llm(self) -> bool:
-        if self.llm_provider == "gemini":
+        p = (self.llm_provider or "openai").lower()
+        if p == "gemini":
             return usable_key(self.gemini_api_key)
+        if p == "groq":
+            return usable_key(self.groq_api_key)
+        if p == "ollama":
+            return True
         return usable_key(self.openai_api_key)
 
     @property
     def has_gemini(self) -> bool:
         return usable_key(self.gemini_api_key)
+
+    @property
+    def has_groq(self) -> bool:
+        return usable_key(self.groq_api_key)
 
     @property
     def has_web_search(self) -> bool:

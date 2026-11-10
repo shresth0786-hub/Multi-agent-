@@ -67,17 +67,14 @@ def openai_available() -> bool:
 
 
 def get_chat_model(model: str | None = None, temperature: float | None = None) -> Any:
-    """Return the configured chat model (OpenAI or Gemini), or None without keys.
-
-    Also returns None when the Gemini extras are not installed so the rest of
-    the app degrades gracefully instead of crashing.
-    """
+    """Return the configured chat model (OpenAI/Gemini/Groq/Ollama), or None without keys."""
     settings = get_settings()
     temperature = (
         settings.llm_temperature if temperature is None else temperature
     )
+    provider = _provider()
 
-    if _provider() == "gemini":
+    if provider == "gemini":
         if not usable_key(settings.gemini_api_key):
             return None
         try:
@@ -88,13 +85,39 @@ def get_chat_model(model: str | None = None, temperature: float | None = None) -
                     model=model or settings.gemini_model,
                     temperature=temperature,
                     api_key=settings.gemini_api_key,
-                    # Fail fast on 429/quota errors instead of the SDK's long
-                    # backoff, which would stall a streaming request for minutes.
                     max_retries=settings.llm_max_retries,
                 )
             )
         except ImportError:
             return None
+
+    if provider == "groq":
+        if not usable_key(settings.groq_api_key):
+            return None
+        try:
+            from langchain_groq import ChatGroq
+
+            return _ThrottledChatModel(
+                ChatGroq(
+                    model=model or settings.groq_model,
+                    temperature=temperature,
+                    api_key=settings.groq_api_key,
+                )
+            )
+        except ImportError:
+            return None
+
+    if provider == "ollama":
+        try:
+            from langchain_ollama import ChatOllama
+        except ImportError:
+            from langchain_community.chat_models import ChatOllama
+
+        return ChatOllama(
+            model=model or settings.ollama_model,
+            base_url=settings.ollama_base_url,
+            temperature=temperature,
+        )
 
     if not usable_key(settings.openai_api_key):
         return None
@@ -108,8 +131,21 @@ def get_chat_model(model: str | None = None, temperature: float | None = None) -
 
 
 def get_embeddings() -> Any:
-    """Return an embeddings model (OpenAI preferred, Gemini as fallback)."""
+    """Return an embeddings model - free-first: HF local > OpenAI > Gemini > Ollama."""
     settings = get_settings()
+    # Prefer HuggingFace local (free, no key) if configured
+    if (settings.embedding_provider or "").lower() == "huggingface":
+        try:
+            from langchain_huggingface import HuggingFaceEmbeddings
+        except ImportError:
+            from langchain_community.embeddings import HuggingFaceEmbeddings
+
+        return HuggingFaceEmbeddings(
+            model_name=settings.hf_embedding_model,
+            model_kwargs={"device": "cpu"},
+            encode_kwargs={"normalize_embeddings": True},
+        )
+
     if usable_key(settings.openai_api_key):
         from langchain_openai import OpenAIEmbeddings
 
@@ -126,5 +162,31 @@ def get_embeddings() -> Any:
                 google_api_key=settings.gemini_api_key,
             )
         except ImportError:
+            pass
+    # Ollama fallback
+    try:
+        from langchain_ollama import OllamaEmbeddings
+    except ImportError:
+        try:
+            from langchain_community.embeddings import OllamaEmbeddings
+        except ImportError:
             return None
-    return None
+
+    try:
+        return OllamaEmbeddings(
+            model=settings.ollama_embedding_model,
+            base_url=settings.ollama_base_url,
+        )
+    except Exception:
+        pass
+    # Last resort: HF local
+    try:
+        from langchain_huggingface import HuggingFaceEmbeddings
+    except ImportError:
+        from langchain_community.embeddings import HuggingFaceEmbeddings
+
+    return HuggingFaceEmbeddings(
+        model_name=settings.hf_embedding_model,
+        model_kwargs={"device": "cpu"},
+        encode_kwargs={"normalize_embeddings": True},
+    )
