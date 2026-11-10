@@ -1,11 +1,19 @@
-﻿# Python
+# Python
 __pycache__/
 *.pyc
 *.pyo
 *.pyd
+*.py[cod]
+*.egg-info/
+.eggs/
+build/
+dist/
 .venv/
 venv/
 *.egg-info/
+.pytest_cache/
+.ruff_cache/
+.mypy_cache/
 
 # Env & secrets
 .env
@@ -15,11 +23,33 @@ chroma_db/
 *.sqlite
 *.sqlite3
 
-# OS
+# Data artifacts
+data/faiss_index/*
+!data/faiss_index/.gitkeep
+data/raw_docs/*
+!data/raw_docs/.gitkeep
+!data/raw_docs/q3_metrics.md
+!data/raw_docs/retention_analysis.md
+!data/raw_docs/experiments_backlog.md
+!data/raw_docs/product_notes.md
+data/generated/
+data/*.sqlite
+data/*.sqlite-*
+data/checkpoints/
+data/examples/*
+!data/examples/.gitkeep
+!data/examples/style_examples.jsonl
+data/finetune/
+data/settings_overrides.json
+
+# Logs
+server*.log
+
+# OS / editor
 .DS_Store
 Thumbs.db
-
-# Streamlit
+.idea/
+.vscode/
 .streamlit/
 
 # Legacy spaced files (migrated to agents/ package)

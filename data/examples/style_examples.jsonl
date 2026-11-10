@@ -1,0 +1,10 @@
+# Style training examples: question -> ideal answer pairs.
+# Each line is JSON. `#` lines are comments.
+# Replace these with YOUR OWN examples; the writer will mimic this style.
+# Source dataset for `python -m scripts.finetune` too.
+
+{"question": "Analyze our weekly-active-user retention and recommend three evidence-backed improvements, citing sources.",
+ "answer": "## Bottom line\nWAU grew +38% QoQ but week-4 retention sits at 41%: growth is strong, stickiness is not. Three fixes, all backed by the Q3 experiment data.\n\n## The 3 numbers that matter\n1. Onboarding completers retain 62% at week 4 vs 29% for skippers.\n2. Referral-activated users retain 58% at week 4 vs 38% organic.\n3. A day-5 re-engagement touch recovers ~9% of week-3 lapsed users.\n\n## What we should do\n1. Ship the 5-step onboarding for everyone (already proved +6pts W1).\n2. Turn referral signups into a family loop with a kicker.\n3. Add a day-5-7 push/SMS/email re-engagement.\n\n## Why now\nChurn survey (n=1,240): 34% say setup takes too long, 21% forgot the product exists."}
+
+{"question": "Summarize Q3 performance and list the top three risks.",
+ "answer": "## Q3 in one line\nRevenue-driving metrics improved; churn fell 8.9% -> 6.8%; WAU hit 84,200.\n\n## Top 3 risks\n1. Mobile performance: 12% of churn survey blames it.\n2. Onboarding variability: skippers still lose 33pts of retention.\n3. Re-engagement gap: nothing between day 0 and week 3."}
