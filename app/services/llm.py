@@ -119,6 +119,23 @@ def get_chat_model(model: str | None = None, temperature: float | None = None) -
             temperature=temperature,
         )
 
+    if provider == "lora":
+        # Local fine-tuned Llama-3-8B + LoRA adapter in models/lora_adapter/
+        try:
+            from app.services.lora_llm import get_lora_chat_model
+
+            return get_lora_chat_model(
+                adapter_path=str(settings.lora_adapter_path),
+                base_model=settings.lora_base_model,
+                temperature=temperature,
+                max_new_tokens=settings.lora_max_new_tokens,
+            )
+        except Exception as e:
+            import logging
+
+            logging.getLogger(__name__).warning(f"LoRA load failed: {e}, falling back to HF")
+            return None
+
     if not usable_key(settings.openai_api_key):
         return None
     from langchain_openai import ChatOpenAI

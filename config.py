@@ -1,4 +1,5 @@
 import os
+from pathlib import Path
 from functools import lru_cache
 from dotenv import load_dotenv
 
@@ -13,8 +14,10 @@ load_dotenv()
 
 def _detect_provider() -> str:
     explicit = os.getenv("LLM_PROVIDER", "").strip().lower()
-    if explicit in {"groq", "gemini", "ollama", "openai", "huggingface"}:
+    if explicit in {"groq", "gemini", "ollama", "openai", "huggingface", "lora"}:
         return explicit
+    if os.getenv("LORA_ADAPTER_PATH") or Path("models/lora_adapter/adapter_model.safetensors").exists():
+        return "lora"
     # auto-detect: prefer free providers if their key/env exists
     if os.getenv("GROQ_API_KEY"):
         return "groq"
@@ -75,6 +78,16 @@ def get_llm():
             base_url=os.getenv("OLLAMA_BASE_URL", "http://localhost:11434"),
             temperature=temperature,
             num_predict=max_tokens,
+        )
+
+    if provider == "lora":
+        from app.services.lora_llm import get_lora_chat_model
+
+        return get_lora_chat_model(
+            adapter_path=os.getenv("LORA_ADAPTER_PATH", "models/lora_adapter"),
+            base_model=os.getenv("LORA_BASE_MODEL", "meta-llama/Meta-Llama-3-8B"),
+            temperature=temperature,
+            max_new_tokens=int(os.getenv("LORA_MAX_NEW_TOKENS", "512")),
         )
 
     # openai fallback (paid)

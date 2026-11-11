@@ -15,7 +15,7 @@ class Settings(BaseSettings):
         extra="ignore",
     )
 
-    # LLM provider: "openai" | "gemini" | "groq" | "ollama" (auto free-first)
+    # LLM provider: "openai" | "gemini" | "groq" | "ollama" | "lora" (local fine-tuned)
     llm_provider: str = "openai"
 
     # LLM (OpenAI)
@@ -43,6 +43,11 @@ class Settings(BaseSettings):
     # Embeddings (HF local = free, no key)
     embedding_provider: str = "huggingface"
     hf_embedding_model: str = "sentence-transformers/all-MiniLM-L6-v2"
+
+    # Local LoRA fine-tuned model (your adapter in models/lora_adapter/)
+    lora_adapter_path: Path = PROJECT_ROOT / "models" / "lora_adapter"
+    lora_base_model: str = "meta-llama/Meta-Llama-3-8B"
+    lora_max_new_tokens: int = 512
 
     # Research
     tavily_api_key: str = ""
@@ -98,7 +103,7 @@ class Settings(BaseSettings):
             return usable_key(self.gemini_api_key)
         if p == "groq":
             return usable_key(self.groq_api_key)
-        if p == "ollama":
+        if p in {"ollama", "lora"}:
             return True
         return usable_key(self.openai_api_key)
 

@@ -58,3 +58,8 @@ agents comparision.py
 agents critics.py
 agents report.py
 agents research.py
+# Local LoRA adapter weights (large, keep locally, not in git - use LFS if needed)
+models/lora_adapter/*.safetensors
+models/lora_adapter/ludwig_config.json
+models/lora_adapter/*.bin
+streamlit_*.log
