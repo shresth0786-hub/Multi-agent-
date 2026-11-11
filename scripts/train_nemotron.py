@@ -1,14 +1,15 @@
 """
 Fine-tune the local LoRA adapter (models/lora_adapter) on
-nvidia/Nemotron-SFT-Agentic-Finance-v1 (agentic finance SFT).
+nvidia/Nemotron-SFT-Agentic-v4 (agentic SFT, ~1M samples).
 
 Uses HF datasets + transformers + peft + trl SFTTrainer.
 Base model: meta-llama/Meta-Llama-3-8B (from adapter_config.json) + existing LoRA.
 
+All storage forced to D: drive (HF_HOME, datasets, checkpoints).
+
 Run:
   hf auth login  # paste HF token with access to Llama-3 and Nemotron dataset
-  # keep cache on D:  $env:HF_HOME="D:\\Multi Agent Ai\\.hf_cache"
-  python -m scripts.train_nemotron --max_steps 100 --output_dir models/lora_adapter_nemotron
+  python -m scripts.train_nemotron --dataset nvidia/Nemotron-SFT-Agentic-v4 --max_steps 100 --output_dir D:\\Multi Agent Ai\\models\\lora_adapter_nemotron_v4
 
 Requires: datasets, transformers, peft, trl, accelerate, torch
 """
@@ -17,20 +18,29 @@ import argparse
 import os
 from pathlib import Path
 
+# Force all HF/datasets cache to D: drive (C: only 940MB free)
+os.environ.setdefault("HF_HOME", r"D:\Multi Agent Ai\.hf_cache")
+os.environ.setdefault("HF_HUB_CACHE", r"D:\Multi Agent Ai\.hf_cache\hub")
+os.environ.setdefault("TRANSFORMERS_CACHE", r"D:\Multi Agent Ai\.hf_cache\transformers")
+os.environ.setdefault("HF_DATASETS_CACHE", r"D:\Multi Agent Ai\.hf_cache\datasets")
+os.environ.setdefault("TRL_CACHE", r"D:\Multi Agent Ai\.hf_cache")
+
 PROJECT_ROOT = Path(__file__).resolve().parent.parent
 DEFAULT_ADAPTER = PROJECT_ROOT / "models" / "lora_adapter"
-DEFAULT_OUTPUT = PROJECT_ROOT / "models" / "lora_adapter_nemotron"
+DEFAULT_OUTPUT = Path(r"D:\Multi Agent Ai\models\lora_adapter_nemotron_v4")
+DEFAULT_DATASET = "nvidia/Nemotron-SFT-Agentic-v4"
 
 
-def load_nemotron_dataset(token: str | None = None, streaming: bool = False, max_samples: int | None = None):
+def load_nemotron_dataset(dataset: str = DEFAULT_DATASET, token: str | None = None, streaming: bool = False, max_samples: int | None = None):
     from datasets import load_dataset
 
-    # Public but gated - needs HF_TOKEN via env or `hf auth login`
+    # Gated - needs HF_TOKEN via env or `hf auth login`
     ds = load_dataset(
-        "nvidia/Nemotron-SFT-Agentic-Finance-v1",
+        dataset,
         split="train",
         streaming=streaming,
         token=token,
+        cache_dir=os.environ.get("HF_DATASETS_CACHE"),
     )
     if max_samples and not streaming:
         ds = ds.select(range(min(max_samples, len(ds))))
@@ -67,6 +77,7 @@ def format_nemotron(example):
 
 def main():
     parser = argparse.ArgumentParser()
+    parser.add_argument("--dataset", default=DEFAULT_DATASET, help="HF dataset id, e.g. nvidia/Nemotron-SFT-Agentic-v4")
     parser.add_argument("--adapter_path", default=str(DEFAULT_ADAPTER))
     parser.add_argument("--output_dir", default=str(DEFAULT_OUTPUT))
     parser.add_argument("--base_model", default="meta-llama/Meta-Llama-3-8B")
@@ -79,18 +90,20 @@ def main():
     args = parser.parse_args()
 
     token = os.getenv("HF_TOKEN") or os.getenv("HUGGINGFACE_TOKEN")
+    print(f"Dataset: {args.dataset}")
     print(f"Adapter: {args.adapter_path}")
     print(f"Base: {args.base_model}")
-    print(f"Output: {args.output_dir}")
+    print(f"Output: {args.output_dir} (on D:)")
+    print(f"HF cache: {os.environ.get('HF_HOME')}")
     print(f"HF token: {'yes' if token else 'no - run `hf auth login` if dataset is gated'}")
 
     # 1. Load dataset
-    print("\n[1] Loading nvidia/Nemotron-SFT-Agentic-Finance-v1 ...")
+    print(f"\n[1] Loading {args.dataset} ...")
     try:
-        ds = load_nemotron_dataset(token=token, streaming=args.streaming, max_samples=args.max_samples if args.max_samples else None)
+        ds = load_nemotron_dataset(dataset=args.dataset, token=token, streaming=args.streaming, max_samples=args.max_samples if args.max_samples else None)
     except Exception as e:
         print(f"Failed to load dataset: {e}")
-        print("Hint: `hf auth login` and ensure token has access to nvidia/Nemotron-SFT-Agentic-Finance-v1 and meta-llama/Meta-Llama-3-8B")
+        print(f"Hint: `hf auth login` and ensure token has access to {args.dataset} and {args.base_model}")
         return 1
 
     # Map to text field
