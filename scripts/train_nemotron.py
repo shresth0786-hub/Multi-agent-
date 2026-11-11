@@ -34,16 +34,32 @@ DEFAULT_DATASET = "nvidia/Nemotron-SFT-Agentic-v4"
 def load_nemotron_dataset(dataset: str = DEFAULT_DATASET, token: str | None = None, streaming: bool = False, max_samples: int | None = None):
     from datasets import load_dataset
 
-    # Gated - needs HF_TOKEN via env or `hf auth login`
-    ds = load_dataset(
-        dataset,
-        split="train",
-        streaming=streaming,
-        token=token,
-        cache_dir=os.environ.get("HF_DATASETS_CACHE"),
-    )
+    # v4 has splits tool_calling/knowledge_agent, v1 has train
+    for split in ["train", "tool_calling", "knowledge_agent"]:
+        try:
+            ds = load_dataset(
+                dataset,
+                split=split,
+                streaming=streaming,
+                token=token,
+                cache_dir=os.environ.get("HF_DATASETS_CACHE"),
+            )
+            print(f"Using split: {split}")
+            break
+        except Exception as e:
+            if "Bad split" in str(e):
+                continue
+            raise
+    else:
+        raise ValueError(f"No split found for {dataset}")
     if max_samples and not streaming:
-        ds = ds.select(range(min(max_samples, len(ds))))
+        try:
+            ds = ds.select(range(min(max_samples, len(ds))))
+        except Exception:
+            # streaming: take
+            import itertools
+
+            ds = ds.take(max_samples)
     return ds
 
 
